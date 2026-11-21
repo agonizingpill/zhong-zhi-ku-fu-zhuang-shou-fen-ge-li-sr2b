@@ -92,6 +92,26 @@ class Distribution(Base):
     purpose:Mapped[str]=mapped_column(String(300))
     state:Mapped[str]=mapped_column(String(20),default='requested')
     reserve_snapshot:Mapped[dict|None]=mapped_column(JSON,nullable=True)
+class LineageSource(Base):
+    __tablename__='lineage_sources'
+    __table_args__=(CheckConstraint('revision >= 1'),)
+    id:Mapped[int]=mapped_column(primary_key=True)
+    harvest_id:Mapped[int]=mapped_column(ForeignKey('harvests.id'),unique=True)
+    offspring_lot_id:Mapped[int]=mapped_column(ForeignKey('lots.id'),unique=True)
+    mother_lot_id:Mapped[int]=mapped_column(ForeignKey('lots.id'))
+    father_lot_id:Mapped[int]=mapped_column(ForeignKey('lots.id'))
+    bag_code:Mapped[str]=mapped_column(String(60))
+    flowering_plot_code:Mapped[str]=mapped_column(String(40),default='')
+    flowering_start:Mapped[str]=mapped_column(String(10))
+    flowering_end:Mapped[str]=mapped_column(String(10))
+    vitality_test_id:Mapped[int|None]=mapped_column(ForeignKey('germination_tests.id'),nullable=True)
+    vitality_version:Mapped[str]=mapped_column(String(120))
+    vitality_snapshot:Mapped[dict|None]=mapped_column(JSON,nullable=True)
+    status:Mapped[str]=mapped_column(String(20),default='pending')
+    revision:Mapped[int]=mapped_column(Integer,default=1)
+    pending_reason:Mapped[str]=mapped_column(String(300),default='')
+    verified_by:Mapped[str|None]=mapped_column(String(100),nullable=True)
+    verified_at:Mapped[str|None]=mapped_column(String(40),nullable=True)
 class Audit(Base):
     __tablename__='audits'
     id:Mapped[int]=mapped_column(primary_key=True)

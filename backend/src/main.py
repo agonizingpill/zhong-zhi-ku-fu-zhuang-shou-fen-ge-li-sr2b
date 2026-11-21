@@ -10,7 +10,7 @@ from .models import *
 from .schemas import *
 from .auth import current,writer,supervisor,verify,token
 from .common import pack,lock,add,audit
-from . import renewal_service as renewal,isolation_service as isolation,harvest_service as harvest,sharing_service as sharing
+from . import renewal_service as renewal,isolation_service as isolation,harvest_service as harvest,sharing_service as sharing,lineage_service as lineage
 from .middleware import Trace,Burst
 queue=redis.Redis.from_url(os.environ['REDIS_URL'],decode_responses=True)
 @asynccontextmanager
@@ -31,7 +31,14 @@ def login(d:Login,s=Depends(session)):
 def me(u=Depends(current)):return {'email':u.email,'role':u.role}
 @app.get('/archive')
 def archive(s=Depends(session),u=Depends(current)):
-    return {cls.__tablename__:[pack(x)for x in s.scalars(select(cls).order_by(cls.id))]for cls in (Accession,Lot,GerminationTest,Regeneration,Plot,Flowering,Pollination,Harvest,Distribution)}
+    data={cls.__tablename__:[pack(x)for x in s.scalars(select(cls).order_by(cls.id))]for cls in (Accession,Lot,GerminationTest,Regeneration,Plot,Flowering,Pollination,Harvest,Distribution,LineageSource)}
+    # 共享页需要看到哪些种批受谱系待核阻断及具体理由。
+    blocks=[]
+    for lot in s.scalars(select(Lot).order_by(Lot.id)):
+        reason=lineage.block_reason(s,lot)
+        if reason:blocks.append({'lot_id':lot.id,'lot_code':lot.code,'reason':reason})
+    data['sharing_blocks']=blocks
+    return data
 @app.get('/audits')
 def audits(s=Depends(session),u=Depends(current)):return [pack(x)for x in s.scalars(select(Audit).order_by(Audit.id.desc()).limit(50))]
 @app.post('/accessions')
@@ -97,6 +104,12 @@ def store(id:int,s=Depends(session),u=Depends(supervisor)):
 @app.post('/distributions')
 def distribution(d:DistributionInput,s=Depends(session),u=Depends(writer)):
     x=sharing.request(s,d,u);s.commit();return x
+@app.post('/lineage-sources/{id}/verify')
+def verify_lineage(id:int,d:LineageCorrectInput,s=Depends(session),u=Depends(supervisor)):
+    x=lineage.verify(s,id,u,d);s.commit();return x
+@app.post('/lineage-sources/{id}/correct')
+def correct_lineage(id:int,d:LineageCorrectInput,s=Depends(session),u=Depends(supervisor)):
+    x=lineage.correct(s,id,u,d);s.commit();return x
 @app.post('/distributions/{id}/approve')
 def approve(id:int,s=Depends(session),u=Depends(supervisor)):
     x=sharing.approve(s,id,u);s.commit();return x

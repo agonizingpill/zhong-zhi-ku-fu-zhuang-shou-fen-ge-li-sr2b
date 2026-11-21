@@ -1,7 +1,8 @@
 from fastapi import HTTPException
 from sqlalchemy import select
-from .models import Accession,Lot,Regeneration,Pollination,Harvest,Flowering
+from .models import Accession,Lot,Regeneration,Pollination,Harvest,Flowering,GerminationTest
 from .common import lock,pack,add,audit
+from . import lineage_service as lineage
 
 def save(s,d,u,id=None):
     r=lock(s,Regeneration,d.regeneration_id)
@@ -23,6 +24,11 @@ def store(s,id,u):
     if h.state!='drying' or r.state!='issued':raise HTTPException(409,'回库不可重复')
     if h.moisture>12:raise HTTPException(409,'种子含水率须≤12%，请干燥复测后回库')
     pollen=s.scalar(select(Pollination).where(Pollination.regeneration_id==r.id));f=s.scalar(select(Flowering).where(Flowering.regeneration_id==r.id))
+    if not f:raise HTTPException(409,'缺少隔离花期记录，无法冻结后代谱系')
     child=Lot(accession_id=parent.accession_id,code=h.code+'-G'+str(parent.generation+1),generation=parent.generation+1,available=h.seeds,stored_months=0,temperature=-18,initial_rate=parent.initial_rate,parent_lot_id=parent.id);s.add(child);s.flush()
-    h.lineage={'parent_lot':pack(parent),'father_lot':pack(s.get(Lot,pollen.father_lot_id)),'pollination':pack(pollen),'flowering':pack(f),'vitality':r.vitality_snapshot,'initial_rate_note':'Inherited planning prior; offspring requires independent germination test before sharing'}
-    h.state='stored';h.offspring_lot_id=child.id;r.state='harvested';f.state='released';audit(s,u,'主管回库继承G'+str(child.generation)+' '+h.code);return pack(h)
+    father=s.get(Lot,pollen.father_lot_id);test=s.get(GerminationTest,r.test_id)
+    h.state='stored';h.offspring_lot_id=child.id;r.state='harvested';f.state='released'
+    source=lineage.create(s,h,r,parent,father,pollen,f,test)
+    h.lineage={'parent_lot':pack(parent),'father_lot':pack(father),'pollination':pack(pollen),'flowering':pack(f),'vitality':r.vitality_snapshot,'source':lineage.snapshot(source),'initial_rate_note':'Inherited planning prior; offspring requires independent germination test before sharing'}
+    audit(s,u,'主管回库继承G'+str(child.generation)+' '+h.code+'，谱系来源待核对')
+    return pack(h)
